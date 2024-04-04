@@ -1,6 +1,8 @@
 
 #[macro_use] extern crate log;
 extern crate simplelog;
+// use std::os::windows::prelude;
+
 use simplelog::{TermLogger, LevelFilter, TerminalMode, ColorChoice};
 
 extern crate structopt;
@@ -9,8 +11,7 @@ use structopt::StructOpt;
 extern crate humantime;
 use humantime::Duration;
 
-use streamdeck::{StreamDeck, Filter, Colour, ImageOptions, Error};
-
+use streamdeck::{Colour, Error, Filter, ImageOptions, InputEvent, StreamDeck};
 #[derive(StructOpt)]
 #[structopt(name = "streamdeck-cli", about = "A CLI for the Elgato StreamDeck")]
 struct Options {
@@ -21,7 +22,7 @@ struct Options {
     #[structopt(flatten)]
     filter: Filter,
 
-    #[structopt(long = "log-level", default_value = "info")]
+    #[structopt(long = "log-level", default_value = "debug")]
     /// Enable verbose logging
     level: LevelFilter,
 }
@@ -46,6 +47,18 @@ pub enum Commands {
         #[structopt(long)]
         /// Read continuously
         continuous: bool,
+    },
+    /// Fetch input states (dials, buttons & touchscreen on SD Plus)
+    GetInput {
+        #[structopt(long)]
+        /// Timeout for input reading
+        timeout: Option<Duration>,
+
+        #[structopt(long)]
+        /// Read continuously
+        continuous: bool,
+        #[structopt(skip)]
+        callback: Option<Box<dyn Fn(Vec<InputEvent>) -> Result<(), Error> + Send>>
     },
     /// Set button colours
     SetColour {
@@ -82,6 +95,7 @@ fn main() {
     let mut deck = match StreamDeck::connect(opts.filter.vid, opts.filter.pid, opts.filter.serial) {
         Ok(d) => d,
         Err(e) => {
+            println!("Error connecting to streamdeck: {:?}", e);
             error!("Error connecting to streamdeck: {:?}", e);
             return
         }
@@ -113,6 +127,19 @@ fn do_command(deck: &mut StreamDeck, cmd: Commands) -> Result<(), Error> {
             loop {
                 let buttons = deck.read_buttons(timeout.map(|t| *t ))?;
                 info!("buttons: {:?}", buttons);
+
+                if !continuous {
+                    break
+                }
+            }
+        },
+        Commands::GetInput{timeout, continuous, callback} => {
+            loop {
+                let input = deck.read_input(timeout.map(|t| *t ))?;
+                info!("input: {:?}\n", input);
+                if let Some(cb) = &callback {
+                    cb(input)?;
+                }
 
                 if !continuous {
                     break

@@ -1,4 +1,5 @@
-use std::{io::Error as IoError};
+use std::vec;
+use std::io::Error as IoError;
 use std::time::Duration;
 
 #[macro_use]
@@ -17,6 +18,9 @@ pub use crate::images::{Colour, ImageOptions};
 pub mod info;
 pub use info::*;
 
+pub mod input;
+pub use input::*;
+
 use imageproc::drawing::draw_text_mut;
 use rusttype::{Font, Scale};
 use std::str::FromStr;
@@ -26,6 +30,7 @@ use thiserror::Error;
 pub struct StreamDeck {
     kind: Kind,
     device: HidDevice,
+    input_manager: InputManager
 }
 
 /// Helper object for filtering device connections
@@ -62,6 +67,10 @@ pub enum Error {
     InvalidImageSize,
     #[error("invalid key index")]
     InvalidKeyIndex,
+    #[error("invalid touchscreen segment index")]
+    InvalidTouchscreenSegmentIndex,
+    #[error("invalid input type index")]
+    InvalidInputTypeIndex,
     #[error("unrecognised pid")]
     UnrecognisedPID,
     #[error("no data")]
@@ -95,6 +104,7 @@ pub mod pids {
     pub const XL: u16 = 0x006c;
     pub const MK2: u16 = 0x0080;
     pub const REVISED_MINI: u16 = 0x0090;
+    pub const PLUS: u16 = 0x0084;
 }
 
 impl StreamDeck {
@@ -121,6 +131,7 @@ impl StreamDeck {
             pids::XL => Kind::Xl,
             pids::MK2 => Kind::Mk2,
             pids::REVISED_MINI => Kind::Mini,
+            pids::PLUS => Kind::Plus,
 
             _ => return Err(Error::UnrecognisedPID),
         };
@@ -134,7 +145,11 @@ impl StreamDeck {
         }?;
 
         // Return streamdeck object
-        Ok(StreamDeck { device, kind })
+        Ok(StreamDeck { 
+            device, kind, 
+            input_manager: 
+            InputManager::new()
+        })
     }
 
     /// Fetch the connected device kind
@@ -214,6 +229,36 @@ impl StreamDeck {
 
         Ok(())
     }
+    #[cfg(feature = "structopt")]
+    /// Fetch input states. Extended functionality for the Streamdeck Plus
+    /// Handles dials, buttons & touchscreen, other streamdecks will be redi
+    /// 
+    /// In blocking mode this will wait until a report packet has been received
+    /// (or the specified timeout has elapsed). In non-blocking mode this will return
+    /// immediately with a zero vector if no data is available
+    pub fn read_input(&mut self, timeout: Option<Duration>) -> Result<Vec<InputEvent>, Error> {
+        // All other streamdecks only have buttons, so we don't need to handle dials & touchscreen
+        if self.kind != Kind::Plus {
+            let _key = self.read_buttons(timeout)?;
+            todo!("Handle conversion of non sd plus read_buttons result to InputEvent");
+        }
+        let mut cmd = [0u8; 12];
+        let keys = self.kind.keys() as usize;
+        let offset = self.kind.key_data_offset();
+
+        match timeout {
+            Some(t) => self
+                .device
+                .read_timeout(&mut cmd[..keys + offset + 1], t.as_millis() as i32)?,
+            None => self.device.read(&mut cmd[..keys + offset + 1])?,
+        };
+        debug!("raw cmd:\n{cmd:?}\n");
+
+        if cmd[0] == 0 {
+            return Err(Error::NoData);
+        }
+        Ok(self.input_manager.handle_sd_plus_input(&cmd)?)
+    }
 
     /// Fetch button states
     ///
@@ -253,6 +298,7 @@ impl StreamDeck {
         Ok(out)
     }
 
+
     /// Fetch image size for the connected device
     pub fn image_size(&self) -> (usize, usize) {
         self.kind.image_size()
@@ -276,6 +322,10 @@ impl StreamDeck {
 
     /// Set a button to the provided RGB colour
     pub fn set_button_rgb(&mut self, key: u8, colour: &Colour) -> Result<(), Error> {
+        if self.kind.keys() < key {
+            return Err(Error::InvalidKeyIndex);
+        }
+
         let mut image = vec![0u8; self.kind.image_size_bytes()];
         let colour_order = self.kind.image_colour_order();
 
@@ -340,6 +390,18 @@ impl StreamDeck {
         self.set_button_image(key, DynamicImage::ImageRgb8(image))
     }
 
+    pub fn set_touchscreen_file(&self, segment: u8, image: &str, opts: &ImageOptions) -> Result<(), Error> {
+        self.write_touchscreen_image(segment, &self.load_image(image, opts)?)
+    }
+
+    pub fn write_touchscreen_image(&self, segment: u8, image: &DeviceImage) -> Result<(), Error> {
+        if segment > self.kind.touchscreen_segments() {
+            return Err(Error::InvalidKeyIndex);
+        }
+        let _image = &image.data;
+        todo!()
+    }
+
     ///  Set a button to the provided image file
     pub fn set_button_file(
         &mut self,
@@ -378,6 +440,7 @@ impl StreamDeck {
         if key > self.kind.keys() {
             return Err(Error::InvalidKeyIndex);
         }
+        
         let mapped = match self.kind.key_direction() {
             // All but the original Streamdeck already have correct coordinates
             KeyDirection::LeftToRight => key,
@@ -395,6 +458,9 @@ impl StreamDeck {
     /// Writes an image to a button
     /// Image at this point in correct dimensions and in device native colour order.
     pub fn write_button_image(&mut self, key: u8, image: &DeviceImage) -> Result<(), Error> {
+        if key > self.kind.keys() {
+            return Err(Error::InvalidKeyIndex);
+        }
 
         let image = &image.data;
         let key = self.translate_key_index(key)?;

@@ -65,10 +65,10 @@ impl Kind {
         }
     }
 
-    pub fn touchscreen(&self) -> bool {
+    pub fn touchscreen_segments(&self) -> u8 {
         match self {
-            Kind::Plus => true,
-            _ => false,
+            Kind::Plus => 4,
+            _ => 0,
         }
     }
 
@@ -77,8 +77,8 @@ impl Kind {
         match self {
             Kind::Original => 0,
             Kind::OriginalV2 | Kind::Mk2 => 3,
-            Kind::Mini | Kind::Plus => 0,
-            Kind::Xl => 3,
+            Kind::Mini => 0,
+            Kind::Xl | Kind::Plus => 3,
         }
     }
 

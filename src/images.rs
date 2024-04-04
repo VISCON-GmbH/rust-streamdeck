@@ -105,7 +105,6 @@ pub(crate) fn load_image(
     let reader = match Reader::open(path) {
         Ok(v) => v,
         Err(e) => {
-            error!("error loading file '{}': {:?}", path, e);
             return Err(Error::Io(e));
         }
     };
