@@ -237,12 +237,7 @@ impl StreamDeck {
     /// (or the specified timeout has elapsed). In non-blocking mode this will return
     /// immediately with a zero vector if no data is available
     pub fn read_input(&mut self, timeout: Option<Duration>) -> Result<Vec<InputEvent>, Error> {
-        // All other streamdecks only have buttons, so we don't need to handle dials & touchscreen
-        if self.kind != Kind::Plus {
-            let _key = self.read_buttons(timeout)?;
-            todo!("Handle conversion of non sd plus read_buttons result to InputEvent");
-        }
-        let mut cmd = [0u8; 12];
+        let mut cmd = [0u8; 36];
         let keys = self.kind.keys() as usize;
         let offset = self.kind.key_data_offset();
 
@@ -257,7 +252,7 @@ impl StreamDeck {
         if cmd[0] == 0 {
             return Err(Error::NoData);
         }
-        Ok(self.input_manager.handle_sd_plus_input(&cmd)?)
+        Ok(self.input_manager.handle_input(&cmd, &self.kind)?)
     }
 
     /// Fetch button states

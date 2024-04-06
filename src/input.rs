@@ -27,7 +27,7 @@ pub enum InputEvent {
 #[derive(Debug, Clone)]
 pub struct InputManager {
     pressed_keys: HashSet<u8>,
-    pressed_dials: HashSet<u8>,
+    pressed_dials: HashSet<usize>,
 }
 
 impl InputManager {
@@ -38,20 +38,25 @@ impl InputManager {
         }
     }
 
-    pub fn handle_sd_plus_input(
+    pub fn handle_input(
         &mut self,
-        cmd: &[u8; 12],
+        cmd: &[u8; 36],
+        kind: &crate::Kind,
     ) -> Result<Vec<InputEvent>, crate::Error> {
         let event = match cmd[1] {
-            0 => self.handle_button_event(&cmd, 3),
+            0 => self.handle_button_event(&cmd, &kind),
             2 => self.handle_touchscreen_event(&cmd),
-            3 => self.handle_dial_event(&cmd, 5),
+            3 => self.handle_dial_event(&cmd, &kind),
             _ => return Err(crate::Error::InvalidInputTypeIndex),
         };
         Ok(event)
     }
 
-    fn handle_touchscreen_event(&self, cmd: &[u8; 12]) -> Vec<InputEvent> {
+    fn handle_touchscreen_event(&self, cmd: &[u8; 36]) -> Vec<InputEvent> {
+        //Ids are hardcoded for now, as the SD+ is the only one with a touchscreen.
+        //Just create a new fn in Kind struct to return the number of segments if 
+        //more Streamdeck models with touchscreens are released. 
+        //Also, touchscreen drag events are not supported yet
         vec![InputEvent::Touch {
             segment: cmd[7],
             x: cmd[6],
@@ -59,24 +64,27 @@ impl InputManager {
         }]
     }
 
-    fn handle_dial_event(&mut self, cmd: &[u8; 12], offset: u8) -> Vec<InputEvent> {
-        let press = cmd[4] == 0;
+    fn handle_dial_event(&mut self, cmd: &[u8; 36], kind: &crate::Kind) -> Vec<InputEvent> {
+        let offset = kind.dial_data_offset();
+        let dials = kind.dials() as usize;
+        let press = cmd[kind.dial_press_flag_index()] == 0;
         let mut events = Vec::new();
+
         if !press {
-            for i in offset..offset + 4 {
-                if cmd[i as usize] == 0 {
+            println!("{offset} {dials} {}", offset + dials);
+            for i in offset..offset + dials {
+                if cmd[i] == 0 {
                     continue;
                 }
                 let delta: i8;
                 if cmd[(i) as usize] > 127 {
                     delta = -((255 - cmd[(i) as usize]) as i8) -1; //convert to signed 8-bit and invert. subtract 1 to make it 0-based
-        
                 } 
                 else {
                     delta = cmd[(i) as usize] as i8;
                 }
                 events.push(InputEvent::Dial {
-                    index: i - offset,
+                    index: (i - offset) as u8,
                     press: None,
                     delta: Some(delta),
                 });
@@ -85,15 +93,15 @@ impl InputManager {
             return events;
         }
         let mut fresh_presses = HashSet::new();
-        for i in offset..offset + 4 {
-            if cmd[i as usize] == 1 {
-                let dial = (i - offset) as u8;
+        for i in offset..offset + dials {
+            if cmd[i] == 1 {
+                let dial = i - offset;
                 if self.pressed_dials.contains(&dial) {
                     continue;
                 }
                 fresh_presses.insert(dial);
                 events.push(InputEvent::Dial {
-                    index: dial,
+                    index: dial as u8,
                     press: Some(press),
                     delta: None,
                 });
@@ -102,7 +110,7 @@ impl InputManager {
         self.pressed_dials.retain(|dial| {
             if cmd[(offset + *dial) as usize] == 0 && !fresh_presses.contains(dial) {
                 events.push(InputEvent::Dial {
-                    index: *dial,
+                    index: *dial as u8,
                     press: Some(!press),
                     delta: None,
                 });
@@ -114,21 +122,21 @@ impl InputManager {
         events
     }
 
-    fn handle_button_event(&mut self, cmd: &[u8; 12], offset: usize) -> Vec<InputEvent> {
+    fn handle_button_event(&mut self, cmd: &[u8; 36], kind: &crate::Kind) -> Vec<InputEvent> {
         let mut fresh_presses = HashSet::new();
         let mut events = Vec::new();
-
-        // Iterate over the buttons in the command
-        for i in 4..cmd.len() {
+        let keys = kind.keys() as usize;
+        let offset = kind.key_data_offset();
+        // Iterate over the buttons
+        for i in offset..offset + keys  {
             if cmd[i] == 0 {
                 continue;
             }
-            let button = (i - offset - 1) as u8;
+            let button = (i - offset) as u8;
             // If the button was already reported as pressed, skip it
             if self.pressed_keys.contains(&button) {
                 continue;
             }
-
             // If the button press is fresh, add it to the fresh_presses HashSet and the events Vec
             fresh_presses.insert(button);
             events.push(InputEvent::Button {
@@ -139,7 +147,7 @@ impl InputManager {
 
         // Remove released buttons from the pressed_keys HashSet and add them to the events Vec as released
         self.pressed_keys.retain(|button| {
-            if cmd[offset + *button as usize + 1] == 0 && !fresh_presses.contains(button) {
+            if cmd[offset + *button as usize] == 0 && !fresh_presses.contains(button) {
                 events.push(InputEvent::Button {
                     index: *button,
                     released: true,

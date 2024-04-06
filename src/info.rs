@@ -58,14 +58,29 @@ impl Kind {
         }
     }
 
-    pub fn dials(&self) -> u8 {
+    pub(crate) fn dials(&self) -> u8 {
         match self {
             Kind::Plus => 4,
             _ => 0,
         }
     }
 
-    pub fn touchscreen_segments(&self) -> u8 {
+    pub(crate) fn dial_data_offset(&self) -> usize {
+        match self {
+            Kind::Plus => 5,
+            _ => 0,
+        }
+    }
+
+    pub(crate) fn dial_press_flag_index(&self) -> usize {
+        match self {
+            Kind::Plus => 4,
+            _ => 0,
+        }
+    }
+
+
+    pub(crate) fn touchscreen_segments(&self) -> u8 {
         match self {
             Kind::Plus => 4,
             _ => 0,
@@ -78,7 +93,8 @@ impl Kind {
             Kind::Original => 0,
             Kind::OriginalV2 | Kind::Mk2 => 3,
             Kind::Mini => 0,
-            Kind::Xl | Kind::Plus => 3,
+            Kind::Xl => 3,
+            Kind::Plus => 4,
         }
     }
 
