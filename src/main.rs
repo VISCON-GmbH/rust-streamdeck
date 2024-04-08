@@ -22,7 +22,7 @@ struct Options {
     #[structopt(flatten)]
     filter: Filter,
 
-    #[structopt(long = "log-level", default_value = "debug")]
+    #[structopt(long = "log-level", default_value = "info")]
     /// Enable verbose logging
     level: LevelFilter,
 }
@@ -73,6 +73,14 @@ pub enum Commands {
         /// Index of button to be set
         key: u8,
 
+        /// Image file to be loaded
+        file: String,
+
+        #[structopt(flatten)]
+        opts: ImageOptions,
+    },
+    /// Set touchscreen image
+    SetTouchscreenImage {
         /// Image file to be loaded
         file: String,
 
@@ -136,7 +144,7 @@ fn do_command(deck: &mut StreamDeck, cmd: Commands) -> Result<(), Error> {
         Commands::GetInput{timeout, continuous, callback} => {
             loop {
                 let input = deck.read_input(timeout.map(|t| *t ))?;
-                info!("input: {:?}\n", input);
+                info!("input: {:?}", input);
                 if let Some(cb) = &callback {
                     cb(input)?;
                 }
@@ -153,6 +161,15 @@ fn do_command(deck: &mut StreamDeck, cmd: Commands) -> Result<(), Error> {
         Commands::SetImage{key, file, opts} => {
             info!("Setting key {} to image: {}", key, file);
             deck.set_button_file(key, &file, &opts)?;
+        }
+
+        Commands::SetTouchscreenImage{file, opts} => {
+            info!("Setting touchscreen image: {}", file);
+            let x: u16 = 0;
+            let y: u16 = 50;
+            let width: u16 = 800;
+            let height: u16 = 120;
+            deck.set_touchscreen_file(&file, x, y, width, height, &opts)?;
         }
     }
 

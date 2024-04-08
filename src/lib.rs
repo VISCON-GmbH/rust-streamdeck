@@ -62,13 +62,14 @@ pub enum Error {
     Io(#[from] IoError),
     #[error(transparent)]
     Image(#[from] ImageError),
-
     #[error("invalid image size")]
     InvalidImageSize,
     #[error("invalid key index")]
     InvalidKeyIndex,
     #[error("invalid touchscreen segment index")]
     InvalidTouchscreenSegmentIndex,
+    #[error("invalid touch type")]
+    InvalidTouchType,
     #[error("invalid input type index")]
     InvalidInputTypeIndex,
     #[error("unrecognised pid")]
@@ -229,9 +230,8 @@ impl StreamDeck {
 
         Ok(())
     }
-    #[cfg(feature = "structopt")]
-    /// Fetch input states. Extended functionality for the Streamdeck Plus
-    /// Handles dials, buttons & touchscreen, other streamdecks will be redi
+    
+    /// Fetch input states.
     /// 
     /// In blocking mode this will wait until a report packet has been received
     /// (or the specified timeout has elapsed). In non-blocking mode this will return
@@ -247,7 +247,7 @@ impl StreamDeck {
                 .read_timeout(&mut cmd[..keys + offset + 1], t.as_millis() as i32)?,
             None => self.device.read(&mut cmd[..keys + offset + 1])?,
         };
-        debug!("raw cmd:\n{cmd:?}\n");
+        debug!("raw cmd:\n{:?}\n",&cmd[0..16]);
 
         if cmd[0] == 0 {
             return Err(Error::NoData);
@@ -383,18 +383,6 @@ impl StreamDeck {
         }
 
         self.set_button_image(key, DynamicImage::ImageRgb8(image))
-    }
-
-    pub fn set_touchscreen_file(&self, segment: u8, image: &str, opts: &ImageOptions) -> Result<(), Error> {
-        self.write_touchscreen_image(segment, &self.load_image(image, opts)?)
-    }
-
-    pub fn write_touchscreen_image(&self, segment: u8, image: &DeviceImage) -> Result<(), Error> {
-        if segment > self.kind.touchscreen_segments() {
-            return Err(Error::InvalidKeyIndex);
-        }
-        let _image = &image.data;
-        todo!()
     }
 
     ///  Set a button to the provided image file
@@ -545,6 +533,76 @@ impl StreamDeck {
             buf[4] = if is_last { 1 } else { 0 };
             buf[5] = key;
         }
+    }
+
+    pub fn set_touchscreen_file(&self,image: &str, x: u16, y: u16, width: u16, height: u16, opts: &ImageOptions) -> Result<(), Error> {
+        println!("{x} {y} {width} {height}");
+        self.write_touchscreen_image(&self.load_image(image, opts)?, x, y, width, height)
+    }
+
+    pub fn write_touchscreen_image(&self, image: &DeviceImage, x: u16, y: u16, width: u16, height: u16) -> Result<(), Error> {
+        let size = self.kind.touch_image_size();
+        if x > size.0 as u16 || y > size.1 as u16 {
+            return Err(Error::InvalidKeyIndex); //Todo: create a new error type for this
+        }
+        let image = &image.data;
+        let mut buf = vec![0u8; self.kind.image_report_len()];
+        let base = self.kind.image_touch_base();
+        let hdrlen = self.kind.image_report_header_len();
+        let page_number = 0;
+        let mut sequence = 0;
+        let mut offset = 0;
+        let maxdatalen = buf.len() - hdrlen;
+
+
+        while offset < image.len() {
+            let take = (image.len() - offset).min(maxdatalen);
+            let start = hdrlen;
+            
+            // if sequence == 0 && !base.is_empty() {
+            //     trace!("outputting base");
+            //     buf[start..start + base.len()].copy_from_slice(base);
+            //     // Recalculate take with the smaller room
+            //     take = (image.len() - offset).min(maxdatalen - base.len());
+            //     start += base.len();
+            // }
+
+            let is_last = take == image.len() - offset;
+            
+            buf[0] = 0x02;
+            buf[1] = 0x0c;
+            buf[2] = (x & 0xFF) as u8; // x low
+            buf[3] = (x >> 8) as u8; // x high
+            buf[4] = (y & 0xFF) as u8; // y low
+            buf[5] = (y >> 8) as u8; // y high
+            buf[6] = (width & 0xFF) as u8; // width low
+            buf[7] = (width >> 8) as u8; // width high
+            buf[8] = (height & 0xFF) as u8; // height low
+            buf[9] = (height >> 8) as u8; // height high
+            buf[10] = if is_last { 1 } else { 0 }; // is this the last packet?
+            buf[11] = (page_number & 0xFF) as u8; //Page number low
+            buf[12] = (page_number >> 8) as u8; //Page number high
+            buf[13] = (take & 0xFF) as u8; //take low
+            buf[14] = (take >> 8) as u8; //take high
+            buf[15] = 0x00; //padding
+
+            buf[start..start + take].copy_from_slice(&image[offset..offset + take]);
+
+            trace!(
+                "outputting image chunk [{}..{}[ in [{}..{}[, sequence {}{}",
+                offset,
+                offset + take,
+                start,
+                start + take,
+                sequence,
+                if is_last { " (last)" } else { "" },
+            );
+            self.device.write(&buf)?;
+
+            sequence += 1;
+            offset += take;
+        }
+        Ok(())
     }
 }
 

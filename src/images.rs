@@ -111,7 +111,7 @@ pub(crate) fn load_image(
 
     // Load image
     let mut image = reader.decode().map_err(Error::Image)?;
-
+    //return Ok(image.to_rgb8().into_vec());
     // Apply background filter / replace
     // This must be done before transparency is removed
     if let Some(c) = &opts.background {
