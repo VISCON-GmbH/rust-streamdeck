@@ -1,4 +1,3 @@
-use std::vec;
 use std::io::Error as IoError;
 use std::time::Duration;
 
@@ -6,6 +5,7 @@ use std::time::Duration;
 extern crate log;
 
 extern crate hidapi;
+use ab_glyph::{FontRef, PxScale};
 use hidapi::{HidApi, HidDevice, HidError};
 
 extern crate image;
@@ -22,7 +22,6 @@ pub mod input;
 pub use input::*;
 
 use imageproc::drawing::draw_text_mut;
-use rusttype::{Font, Scale};
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -91,9 +90,7 @@ impl DeviceImage {
 
 impl From<Vec<u8>> for DeviceImage {
     fn from(data: Vec<u8>) -> Self {
-        Self {
-            data
-        }
+        Self { data }
     }
 }
 
@@ -131,8 +128,7 @@ impl StreamDeck {
             pids::ORIGINAL_V2 => Kind::OriginalV2,
             pids::XL => Kind::Xl,
             pids::MK2 => Kind::Mk2,
-            pids::REVISED_MINI => Kind::Mini,
-            pids::PLUS => Kind::Plus,
+            pids::REVISED_MINI => Kind::RevisedMini,
 
             _ => return Err(Error::UnrecognisedPID),
         };
@@ -301,7 +297,7 @@ impl StreamDeck {
 
     /// Convert an image into the device dependent format
     fn convert_image(&self, image: Vec<u8>) -> Result<DeviceImage, Error> {
-            // Check image dimensions
+        // Check image dimensions
         if image.len() != self.kind.image_size_bytes() {
             return Err(Error::InvalidImageSize);
         }
@@ -312,7 +308,7 @@ impl StreamDeck {
                 encode_jpeg(&image, w, h)?
             }
         };
-        Ok(DeviceImage{ data: image })
+        Ok(DeviceImage { data: image })
     }
 
     /// Set a button to the provided RGB colour
@@ -362,7 +358,7 @@ impl StreamDeck {
     pub fn set_button_text(
         &mut self,
         key: u8,
-        font: &Font,
+        font: &FontRef,
         pos: &TextPosition,
         text: &str,
         opts: &TextOptions,
@@ -392,16 +388,11 @@ impl StreamDeck {
         image: &str,
         opts: &ImageOptions,
     ) -> Result<(), Error> {
-
         self.write_button_image(key, &self.load_image(image, opts)?)
     }
 
     /// Load an image file into the device specific representation
-    pub fn load_image(
-        &self,
-        image: &str,
-        opts: &ImageOptions,
-    ) -> Result<DeviceImage, Error> {
+    pub fn load_image(&self, image: &str, opts: &ImageOptions) -> Result<DeviceImage, Error> {
         let (x, y) = self.kind.image_size();
         let rotate = self.kind.image_rotation();
         let mirror = self.kind.image_mirror();
@@ -426,7 +417,7 @@ impl StreamDeck {
         
         let mapped = match self.kind.key_direction() {
             // All but the original Streamdeck already have correct coordinates
-            KeyDirection::LeftToRight => key,
+            KeyDirection::LeftToRight => key + self.kind.key_index_offset(),
             // The original Streamdeck uses 1-indexed right-to-left
             KeyDirection::RightToLeft => {
                 let cols = self.kind.key_columns() as u8;
@@ -441,10 +432,6 @@ impl StreamDeck {
     /// Writes an image to a button
     /// Image at this point in correct dimensions and in device native colour order.
     pub fn write_button_image(&mut self, key: u8, image: &DeviceImage) -> Result<(), Error> {
-        if key > self.kind.keys() {
-            return Err(Error::InvalidKeyIndex);
-        }
-
         let image = &image.data;
         let key = self.translate_key_index(key)?;
 
@@ -616,12 +603,12 @@ pub enum TextPosition {
 pub struct TextOptions {
     foreground: Colour,
     background: Colour,
-    scale: Scale,
+    scale: PxScale,
     line_height: f32,
 }
 
 impl TextOptions {
-    pub fn new(foreground: Colour, background: Colour, scale: Scale, line_height: f32) -> Self {
+    pub fn new(foreground: Colour, background: Colour, scale: PxScale, line_height: f32) -> Self {
         TextOptions {
             foreground,
             background,
@@ -638,7 +625,7 @@ impl Default for TextOptions {
         TextOptions {
             foreground: Colour::from_str("FFFFFF").unwrap(),
             background: Colour::from_str("000000").unwrap(),
-            scale: Scale { x: 15.0, y: 15.0 },
+            scale: PxScale { x: 15.0, y: 15.0 },
             line_height: 1.1,
         }
     }
