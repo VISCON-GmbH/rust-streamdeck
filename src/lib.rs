@@ -9,7 +9,7 @@ use ab_glyph::{FontRef, PxScale};
 use hidapi::{HidApi, HidDevice, HidError};
 
 extern crate image;
-use image::{DynamicImage, ImageBuffer, ImageError, Rgb};
+use image::{io::Reader, DynamicImage, ImageBuffer, ImageError, Rgb};
 
 pub mod images;
 use crate::images::{apply_transform, encode_jpeg};
@@ -147,6 +147,26 @@ impl StreamDeck {
             input_manager: 
             InputManager::new()
         })
+    }
+
+    pub fn probe() -> Result<Vec<Kind>, Error> {
+        let api = HidApi::new()?;
+        let mut available_devices: Vec<Kind> = vec![];
+        for device in api.device_list() {
+            if device.vendor_id() == 0x0fd9 {
+                match device.product_id() {
+                    pids::PLUS => available_devices.push(Kind::Plus),
+                    pids::MK2 => available_devices.push(Kind::Mk2),
+                    pids::XL => available_devices.push(Kind::Xl),
+                    pids::ORIGINAL_V2 => available_devices.push(Kind::OriginalV2),
+                    pids::ORIGINAL => available_devices.push(Kind::Original),
+                    pids::MINI => available_devices.push(Kind::Mini),
+                    _ => {}
+                };
+            }
+        }
+        println!("{:?}", available_devices);
+        Ok(available_devices)
     }
 
     /// Fetch the connected device kind
@@ -311,6 +331,21 @@ impl StreamDeck {
         Ok(DeviceImage { data: image })
     }
 
+    fn convert_touch_image(&self, image: Vec<u8>, dimensions: (usize, usize)) -> Result<DeviceImage, Error> {
+        if image.len() > self.kind.touch_image_size_bytes() {
+            println!("{} > {}", image.len(), self.kind.touch_image_size_bytes());
+            return Err(Error::InvalidImageSize);
+        }
+
+        let image = match self.kind.image_mode() {
+            ImageMode::Bmp => image,
+            ImageMode::Jpeg => {
+                encode_jpeg(&image, dimensions.0, dimensions.1)?
+            }
+        };
+        Ok(DeviceImage{ data: image })
+    }
+
     /// Set a button to the provided RGB colour
     pub fn set_button_rgb(&mut self, key: u8, colour: &Colour) -> Result<(), Error> {
         if self.kind.keys() < key {
@@ -407,6 +442,32 @@ impl StreamDeck {
             self.kind.image_colour_order(),
         )?;
         self.convert_image(image)
+    }
+
+    pub fn load_touch_image(
+        &self,
+        image_path: &str,
+        width: usize,
+        height: usize,
+        _opts: &ImageOptions
+    ) -> Result<DeviceImage, Error> {
+        let max_size = self.kind.touch_image_size();
+        if width > max_size.0 || height > max_size.1 {
+            return Err(Error::InvalidImageSize);
+        }
+
+        let reader = Reader::open(image_path).map_err(|e| Error::Io(e))?;
+        let image = reader.decode().map_err(Error::Image)?;
+        // let image = images::load_image(
+        //     image_path, 
+        //     width, 
+        //     height, 
+        //     rotate, 
+        //     mirror, 
+        //     opts, 
+        //     self.kind.image_colour_order(),
+        // )?;
+        self.convert_touch_image(image.to_rgb8().into_vec(), (width, height))
     }
 
     /// Transforms a key from zero-indexed left-to-right into the device-correct coordinate system
@@ -524,23 +585,37 @@ impl StreamDeck {
 
     pub fn set_touchscreen_file(&self,image: &str, x: u16, y: u16, width: u16, height: u16, opts: &ImageOptions) -> Result<(), Error> {
         println!("{x} {y} {width} {height}");
-        self.write_touchscreen_image(&self.load_image(image, opts)?, x, y, width, height)
+        let img = &self.load_touch_image(
+            image, 
+            width as usize, 
+            height as usize, 
+            opts
+        )?;
+
+        self.write_touchscreen_image(
+            img,
+            x, 
+            y, 
+            width, 
+            height
+        )
     }
 
     pub fn write_touchscreen_image(&self, image: &DeviceImage, x: u16, y: u16, width: u16, height: u16) -> Result<(), Error> {
-        let size = self.kind.touch_image_size();
-        if x > size.0 as u16 || y > size.1 as u16 {
+        let max_size = self.kind.touch_image_size();
+        //Check if image position + dimensions are within the bounds of the touchscreen
+        if x + width > max_size.0 as u16 || y + height > max_size.1 as u16 {
             return Err(Error::InvalidKeyIndex); //Todo: create a new error type for this
         }
         let image = &image.data;
         let mut buf = vec![0u8; self.kind.image_report_len()];
         let base = self.kind.image_touch_base();
-        let hdrlen = self.kind.image_report_header_len();
+        let hdrlen = self.kind.touch_image_report_header_len();
         let page_number = 0;
         let mut sequence = 0;
         let mut offset = 0;
         let maxdatalen = buf.len() - hdrlen;
-
+        println!("{hdrlen}");
 
         while offset < image.len() {
             let take = (image.len() - offset).min(maxdatalen);
@@ -553,30 +628,33 @@ impl StreamDeck {
             //     take = (image.len() - offset).min(maxdatalen - base.len());
             //     start += base.len();
             // }
-
             let is_last = take == image.len() - offset;
+            
+            if is_last {
+                buf = vec![0u8; self.kind.image_report_len()];
+            }
             
             buf[0] = 0x02;
             buf[1] = 0x0c;
             buf[2] = (x & 0xFF) as u8; // x low
-            buf[3] = (x >> 8) as u8; // x high
+            buf[3] = ((x >> 8) & 0xff) as u8; // x high
             buf[4] = (y & 0xFF) as u8; // y low
-            buf[5] = (y >> 8) as u8; // y high
+            buf[5] = ((y >> 8 & 0xff)) as u8; // y high
             buf[6] = (width & 0xFF) as u8; // width low
-            buf[7] = (width >> 8) as u8; // width high
+            buf[7] = ((width >> 8) & 0xff) as u8; // width high
             buf[8] = (height & 0xFF) as u8; // height low
-            buf[9] = (height >> 8) as u8; // height high
+            buf[9] = ((height >> 8) & 0xff) as u8; // height high
             buf[10] = if is_last { 1 } else { 0 }; // is this the last packet?
             buf[11] = (page_number & 0xFF) as u8; //Page number low
-            buf[12] = (page_number >> 8) as u8; //Page number high
+            buf[12] = ((page_number >> 8) & 0xff) as u8; //Page number high
             buf[13] = (take & 0xFF) as u8; //take low
-            buf[14] = (take >> 8) as u8; //take high
+            buf[14] = ((take >> 8) & 0xff) as u8; //take high
             buf[15] = 0x00; //padding
 
             buf[start..start + take].copy_from_slice(&image[offset..offset + take]);
 
             trace!(
-                "outputting image chunk [{}..{}[ in [{}..{}[, sequence {}{}",
+                "outputting image chunk [{}..{}] in [{}..{}] sequence [{}{}]",
                 offset,
                 offset + take,
                 start,

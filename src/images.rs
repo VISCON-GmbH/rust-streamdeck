@@ -101,17 +101,16 @@ pub(crate) fn load_image(
     opts: &ImageOptions,
     colour_order: ColourOrder,
 ) -> Result<Vec<u8>, Error> {
+    println!("rotation: {:?}", rotate);
+    println!("mirror: {:?}", mirror);
+    println!("opts: {:?}", opts);
+    println!("colour_order: {:?}", colour_order);
+
     // Open image reader
-    let reader = match Reader::open(path) {
-        Ok(v) => v,
-        Err(e) => {
-            return Err(Error::Io(e));
-        }
-    };
+    let reader = Reader::open(path).map_err(|e| Error::Io(e))?;
 
     // Load image
     let mut image = reader.decode().map_err(Error::Image)?;
-    //return Ok(image.to_rgb8().into_vec());
     // Apply background filter / replace
     // This must be done before transparency is removed
     if let Some(c) = &opts.background {
@@ -128,10 +127,9 @@ pub(crate) fn load_image(
             p.blend(&r);
         }
     }
-
+    println!("x: {}, y: {}", x, y);
     // Resize image
     let mut image = image.resize(x as u32, y as u32, FilterType::Gaussian);
-
     // Apply the requested mirroring transformation
     image = apply_transform(image, rotate, mirror);
 
@@ -147,6 +145,8 @@ pub(crate) fn load_image(
     }
 
     if v.len() != x * y * 3 {
+        println!("Image size: {}", v.len());
+        println!("Expected size: {}", x * y * 3);
         return Err(Error::InvalidImageSize);
     }
 
@@ -155,9 +155,11 @@ pub(crate) fn load_image(
 
 /// Encodes a BGR bitmap into a JPEG image for outputting to a V2 device
 pub(crate) fn encode_jpeg(image: &[u8], width: usize, height: usize) -> Result<Vec<u8>, Error> {
+    println!("{}", image.len());
     let mut buf = Vec::new();
     let mut encoder = JpegEncoder::new_with_quality(&mut buf, 100);
-    encoder.encode(image, width as u32, height as u32, ExtendedColorType::Rgb8)?;
+    encoder.encode(image, width as u32, height as u32, ExtendedColorType::Rgb8.into())?;
+    println!("JPEG size: {}", buf.len());
     Ok(buf)
 }
 

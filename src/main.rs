@@ -92,7 +92,7 @@ pub enum Commands {
 fn main() {
     // Parse options
     let opts = Options::from_args();
-
+    let _ = StreamDeck::probe();
     // Setup logging
     let mut config = simplelog::ConfigBuilder::new();
     config.set_time_level(LevelFilter::Off);
@@ -165,10 +165,10 @@ fn do_command(deck: &mut StreamDeck, cmd: Commands) -> Result<(), Error> {
 
         Commands::SetTouchscreenImage{file, opts} => {
             info!("Setting touchscreen image: {}", file);
-            let x: u16 = 0;
-            let y: u16 = 50;
-            let width: u16 = 800;
-            let height: u16 = 120;
+            let x: u16 = 40;
+            let y: u16 = 20;
+            let width: u16 = 720;
+            let height: u16 = 60;
             deck.set_touchscreen_file(&file, x, y, width, height, &opts)?;
         }
     }

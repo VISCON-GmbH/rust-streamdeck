@@ -104,7 +104,7 @@ impl Kind {
             Kind::OriginalV2 | Kind::Mk2 => 3,
             Kind::Mini | Kind::RevisedMini => 0,
             Kind::Xl => 3,
-            Kind::Plus => 4,
+            Kind::Plus => 3,
         }
     }
 
@@ -149,7 +149,7 @@ impl Kind {
 
     pub fn touch_image_size(&self) -> (usize, usize) {
         match self {
-            Kind::Plus => (800, 120),
+            Kind::Plus => (800, 100),
             _ => (0, 0),
         }
     }
@@ -194,6 +194,13 @@ impl Kind {
         match self {
             Kind::Original | Kind::Mini | Kind::RevisedMini => 16,
             Kind::OriginalV2 | Kind::Xl | Kind::Mk2 | Kind::Plus => 8,
+        }
+    }
+
+    pub(crate) fn touch_image_report_header_len(&self) -> usize {
+        match self {
+            Kind::Plus => 16,
+            _ => 0,
         }
     }
 
