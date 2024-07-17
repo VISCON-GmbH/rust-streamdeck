@@ -87,7 +87,7 @@ impl InputManager {
         let indices = kind.touch_data_indices();
 
         if indices.is_none() {
-            return Err(crate::Error::InvalidTouchscreenSegmentIndex);
+            return Err(crate::Error::InvalidTouchscreenIndex);
         }
         let indices = indices.unwrap();
         /*

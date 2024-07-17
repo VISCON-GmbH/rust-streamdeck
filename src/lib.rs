@@ -65,8 +65,8 @@ pub enum Error {
     InvalidImageSize,
     #[error("invalid key index")]
     InvalidKeyIndex,
-    #[error("invalid touchscreen segment index")]
-    InvalidTouchscreenSegmentIndex,
+    #[error("invalid touchscreen index")]
+    InvalidTouchscreenIndex,
     #[error("invalid touch type")]
     InvalidTouchType,
     #[error("invalid input type index")]
