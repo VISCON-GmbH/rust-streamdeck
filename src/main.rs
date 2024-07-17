@@ -33,6 +33,8 @@ pub enum Commands {
     Reset,
     /// Fetch the device firmware version
     Version,
+    /// Probe for devices
+    Probe,
     /// Set device display brightness
     SetBrightness{
         /// Brightness value from 0 to 100
@@ -92,7 +94,6 @@ pub enum Commands {
 fn main() {
     // Parse options
     let opts = Options::from_args();
-    let _ = StreamDeck::probe();
     // Setup logging
     let mut config = simplelog::ConfigBuilder::new();
     config.set_time_level(LevelFilter::Off);
@@ -103,7 +104,7 @@ fn main() {
     let mut deck = match StreamDeck::connect(opts.filter.vid, opts.filter.pid, opts.filter.serial) {
         Ok(d) => d,
         Err(e) => {
-            println!("Error connecting to streamdeck: {:?}", e);
+            info!("Error connecting to streamdeck: {:?}", e);
             error!("Error connecting to streamdeck: {:?}", e);
             return
         }
@@ -161,8 +162,7 @@ fn do_command(deck: &mut StreamDeck, cmd: Commands) -> Result<(), Error> {
         Commands::SetImage{key, file, opts} => {
             info!("Setting key {} to image: {}", key, file);
             deck.set_button_file(key, &file, &opts)?;
-        }
-
+        },
         Commands::SetTouchscreenImage{file, opts} => {
             info!("Setting touchscreen image: {}", file);
             let x: u16 = 40;
@@ -171,6 +171,17 @@ fn do_command(deck: &mut StreamDeck, cmd: Commands) -> Result<(), Error> {
             let height: u16 = 60;
             deck.set_touchscreen_file(&file, x, y, width, height, &opts)?;
         }
+        Commands::Probe => {
+            let devices = StreamDeck::probe()?;
+            if devices.is_empty() {
+                info!("No devices found");
+                return Ok(())
+            }
+            info!("Found {} devices", devices.len());
+            for device in devices {
+                info!("Device: {:?} (pid: {:#X})", device.0, device.1);
+            }
+        },
     }
 
     Ok(())

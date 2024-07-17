@@ -93,8 +93,7 @@ impl InputManager {
         /*
          * Indices are hardcoded for now, as the SD+ is the only one with a touchscreen.
          * TODO: create a new fn in Kind struct to return the relevant indices for the current device
-         * more Streamdeck models with touchscreens are released. 
-         * Also, touchscreen drag events are not supported yet
+         * if more Streamdeck models with touchscreens are released. 
         */
         let touch_type = match cmd[indices.event_type_index] {
             1 => TouchType::Short,

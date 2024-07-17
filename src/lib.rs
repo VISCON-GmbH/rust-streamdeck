@@ -129,6 +129,7 @@ impl StreamDeck {
             pids::XL => Kind::Xl,
             pids::MK2 => Kind::Mk2,
             pids::REVISED_MINI => Kind::RevisedMini,
+            pids::PLUS => Kind::Plus,
 
             _ => return Err(Error::UnrecognisedPID),
         };
@@ -149,23 +150,22 @@ impl StreamDeck {
         })
     }
 
-    pub fn probe() -> Result<Vec<Kind>, Error> {
+    pub fn probe() -> Result<Vec<(Kind, u16)>, Error> {
         let api = HidApi::new()?;
-        let mut available_devices: Vec<Kind> = vec![];
+        let mut available_devices: Vec<(Kind, u16)> = vec![];
         for device in api.device_list() {
             if device.vendor_id() == 0x0fd9 {
                 match device.product_id() {
-                    pids::PLUS => available_devices.push(Kind::Plus),
-                    pids::MK2 => available_devices.push(Kind::Mk2),
-                    pids::XL => available_devices.push(Kind::Xl),
-                    pids::ORIGINAL_V2 => available_devices.push(Kind::OriginalV2),
-                    pids::ORIGINAL => available_devices.push(Kind::Original),
-                    pids::MINI => available_devices.push(Kind::Mini),
+                    pids::PLUS => available_devices.push((Kind::Plus, pids::PLUS)),
+                    pids::MK2 => available_devices.push((Kind::Mk2, pids::MK2)),
+                    pids::XL => available_devices.push((Kind::Xl, pids::XL)),
+                    pids::ORIGINAL_V2 => available_devices.push((Kind::OriginalV2, pids::ORIGINAL_V2)),
+                    pids::ORIGINAL => available_devices.push((Kind::Original, pids::ORIGINAL)),
+                    pids::MINI => available_devices.push((Kind::Mini, pids::MINI)),
                     _ => {}
                 };
             }
         }
-        println!("{:?}", available_devices);
         Ok(available_devices)
     }
 
@@ -333,7 +333,7 @@ impl StreamDeck {
 
     fn convert_touch_image(&self, image: Vec<u8>, dimensions: (usize, usize)) -> Result<DeviceImage, Error> {
         if image.len() > self.kind.touch_image_size_bytes() {
-            println!("{} > {}", image.len(), self.kind.touch_image_size_bytes());
+            info!("{} > {}", image.len(), self.kind.touch_image_size_bytes());
             return Err(Error::InvalidImageSize);
         }
 
@@ -584,7 +584,7 @@ impl StreamDeck {
     }
 
     pub fn set_touchscreen_file(&self,image: &str, x: u16, y: u16, width: u16, height: u16, opts: &ImageOptions) -> Result<(), Error> {
-        println!("{x} {y} {width} {height}");
+        info!("{x} {y} {width} {height}");
         let img = &self.load_touch_image(
             image, 
             width as usize, 
@@ -609,13 +609,13 @@ impl StreamDeck {
         }
         let image = &image.data;
         let mut buf = vec![0u8; self.kind.image_report_len()];
-        let base = self.kind.image_touch_base();
+        let _base = self.kind.image_touch_base();
         let hdrlen = self.kind.touch_image_report_header_len();
         let page_number = 0;
         let mut sequence = 0;
         let mut offset = 0;
         let maxdatalen = buf.len() - hdrlen;
-        println!("{hdrlen}");
+        info!("{hdrlen}");
 
         while offset < image.len() {
             let take = (image.len() - offset).min(maxdatalen);
