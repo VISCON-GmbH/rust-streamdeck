@@ -63,7 +63,7 @@ pub(crate) struct TouchDataIndices {
 
 }
 
-
+///Manages inputs for the Streamdeck device. Keeps track of pressed keys and dials and touchscreens and generates InputEvents
 #[derive(Debug, Clone)]
 pub(crate) struct InputManager {
     pressed_keys: HashSet<u8>,
@@ -78,7 +78,7 @@ impl InputManager {
         }
     }
 
-
+    ///Handles input events for the Streamdeck device and returns a Vec of InputEvents
     pub(crate) fn handle_input(
         &mut self,
         cmd: &[u8; 36],
@@ -96,6 +96,7 @@ impl InputManager {
         Ok(self.handle_button_event(&cmd, &kind))
     }
 
+    ///Handles touchscreen events (short touch, long touch, drag) and returns a Vec of InputEvents
     fn handle_touchscreen_event(&self, cmd: &[u8; 36], kind: &crate::Kind) -> Result<Vec<InputEvent>, crate::Error> {
         let indices = kind.touch_data_indices();
 
@@ -125,6 +126,7 @@ impl InputManager {
         }])
     }
 
+    ///Handles dial events (press, release, turn) and returns a Vec of InputEvents
     fn handle_dial_event(&mut self, cmd: &[u8; 36], kind: &crate::Kind) -> Vec<InputEvent> {
         let offset = kind.dial_data_offset();
         let dials = kind.dials() as usize;
@@ -138,7 +140,7 @@ impl InputManager {
                 }
                 let delta: i8;
                 if cmd[(i) as usize] > 127 {
-                    //convert to signed u8 and invert. subtract 1 to make it 0-based
+                    //convert to i8 and invert. subtract 1 to make it 0-based
                     delta = -((255 - cmd[(i) as usize]) as i8) -1;
                 } 
                 else {
@@ -182,7 +184,7 @@ impl InputManager {
         events
     }
 
-
+    ///Handles button events (press, release) and returns a Vec of InputEvents
     fn handle_button_event(&mut self, cmd: &[u8; 36], kind: &crate::Kind) -> Vec<InputEvent> {
         let mut fresh_presses = HashSet::new();
         let mut events = Vec::new();
