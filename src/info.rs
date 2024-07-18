@@ -88,7 +88,8 @@ impl Kind {
                 event_type_index: 4,
                 x_low: 6,
                 x_high: 7,
-                y: 8,
+                y_low: 8,
+                y_high: 9, //Irrelevant for SD Plus, as the touch area is only 100px high, but here for future proofing
                 drag_x_low: 10,
                 drag_x_high: 11,
                 drag_y: 12,

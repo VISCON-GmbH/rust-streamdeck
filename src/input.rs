@@ -57,7 +57,8 @@ pub(crate) struct TouchDataIndices {
     pub event_type_index: usize,
     pub x_low: usize,
     pub x_high: usize,
-    pub y: usize,
+    pub y_low: usize, 
+    pub y_high: usize,
     pub drag_x_low: usize,
     pub drag_x_high: usize,
     pub drag_y: usize,
@@ -123,7 +124,7 @@ impl InputManager {
         Ok(vec![InputEvent::Touch {
             action,
             x: ((cmd[indices.x_high] as u16) << 8) + cmd[indices.x_low] as u16,
-            y: cmd[indices.y] as u16,
+            y: ((cmd[indices.y_high] as u16) << 8) + cmd[indices.y_low] as u16,
         }])
     }
 
