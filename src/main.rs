@@ -1,9 +1,9 @@
-
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 extern crate simplelog;
 // use std::os::windows::prelude;
 
-use simplelog::{TermLogger, LevelFilter, TerminalMode, ColorChoice};
+use simplelog::{ColorChoice, LevelFilter, TermLogger, TerminalMode};
 
 extern crate structopt;
 use structopt::StructOpt;
@@ -15,7 +15,6 @@ use streamdeck::{Colour, Error, Filter, ImageOptions, InputEvent, InputManager, 
 #[derive(StructOpt)]
 #[structopt(name = "streamdeck-cli", about = "A CLI for the Elgato StreamDeck")]
 struct Options {
-
     #[structopt(subcommand)]
     cmd: Commands,
 
@@ -36,7 +35,7 @@ pub enum Commands {
     /// Probe for devices
     Probe,
     /// Set device display brightness
-    SetBrightness{
+    SetBrightness {
         /// Brightness value from 0 to 100
         brightness: u8,
     },
@@ -60,7 +59,7 @@ pub enum Commands {
         /// Read continuously
         continuous: bool,
         #[structopt(skip)]
-        callback: Option<Box<dyn Fn(Vec<InputEvent>) -> Result<(), Error> + Send>>
+        callback: Option<Box<dyn Fn(Vec<InputEvent>) -> Result<(), Error> + Send>>,
     },
     /// Set button colours
     SetColour {
@@ -88,7 +87,7 @@ pub enum Commands {
 
         #[structopt(flatten)]
         opts: ImageOptions,
-    }
+    },
 }
 
 fn main() {
@@ -98,7 +97,13 @@ fn main() {
     let mut config = simplelog::ConfigBuilder::new();
     config.set_time_level(LevelFilter::Off);
 
-    TermLogger::init(opts.level, config.build(), TerminalMode::Mixed, ColorChoice::Auto).unwrap();
+    TermLogger::init(
+        opts.level,
+        config.build(),
+        TerminalMode::Mixed,
+        ColorChoice::Auto,
+    )
+    .unwrap();
 
     // Connect to device
     let mut deck = match StreamDeck::connect(opts.filter.vid, opts.filter.pid, opts.filter.serial) {
@@ -106,13 +111,15 @@ fn main() {
         Err(e) => {
             info!("Error connecting to streamdeck: {:?}", e);
             error!("Error connecting to streamdeck: {:?}", e);
-            return
+            return;
         }
     };
 
     let serial = deck.serial().unwrap();
-    info!("Connected to device (vid: {:04x} pid: {:04x} serial: {})", 
-            opts.filter.vid, opts.filter.pid, serial);
+    info!(
+        "Connected to device (vid: {:04x} pid: {:04x} serial: {})",
+        opts.filter.vid, opts.filter.pid, serial
+    );
 
     // Run the command
     if let Err(e) = do_command(&mut deck, opts.cmd) {
@@ -124,47 +131,52 @@ fn do_command(deck: &mut StreamDeck, cmd: Commands) -> Result<(), Error> {
     match cmd {
         Commands::Reset => {
             deck.reset()?;
-        },
+        }
         Commands::Version => {
             let version = deck.version()?;
             info!("Firmware version: {}", version);
         }
-        Commands::SetBrightness{brightness} => {
+        Commands::SetBrightness { brightness } => {
             deck.set_brightness(brightness)?;
-        },
-        Commands::GetButtons{timeout, continuous} => {
-            loop {
-                let buttons = deck.read_buttons(timeout.map(|t| *t ))?;
-                info!("buttons: {:?}", buttons);
+        }
+        Commands::GetButtons {
+            timeout,
+            continuous,
+        } => loop {
+            let buttons = deck.read_buttons(timeout.map(|t| *t))?;
+            info!("buttons: {:?}", buttons);
 
-                if !continuous {
-                    break
-                }
+            if !continuous {
+                break;
             }
         },
-        Commands::GetInput{timeout, continuous, callback} => {
+        Commands::GetInput {
+            timeout,
+            continuous,
+            callback,
+        } => {
             let mut manager = InputManager::new(deck);
             loop {
-                let input = manager.handle_input(timeout.map(|t| *t ))?;
+                let input = manager.handle_input(timeout.map(|t| *t))?;
                 info!("input: {:?}", input);
                 if let Some(cb) = &callback {
                     cb(input)?;
                 }
 
                 if !continuous {
-                    break
+                    break;
                 }
             }
-        },
-        Commands::SetColour{key, colour} => {
+        }
+        Commands::SetColour { key, colour } => {
             info!("Setting key {} colour to: ({:?})", key, colour);
             deck.set_button_rgb(key, &colour)?;
-        },
-        Commands::SetImage{key, file, opts} => {
+        }
+        Commands::SetImage { key, file, opts } => {
             info!("Setting key {} to image: {}", key, file);
             deck.set_button_file(key, &file, &opts)?;
-        },
-        Commands::SetTouchscreenImage{file, opts} => {
+        }
+        Commands::SetTouchscreenImage { file, opts } => {
             info!("Setting touchscreen image: {}", file);
             //@Todo This needs to be parameterized
             let x: u16 = 0;
@@ -174,16 +186,19 @@ fn do_command(deck: &mut StreamDeck, cmd: Commands) -> Result<(), Error> {
             deck.set_touchscreen_file(&file, x, y, width, height, &opts)?;
         }
         Commands::Probe => {
-            let devices = StreamDeck::probe()?;
-            if devices.is_empty() {
+            let results = StreamDeck::probe()?;
+            if results.is_empty() {
                 info!("No devices found");
-                return Ok(())
+                return Ok(());
             }
-            info!("Found {} devices", devices.len());
-            for device in devices {
-                info!("Device: {:?} (pid: {:#X})", device.0, device.1);
+            info!("Found {} devices", results.len());
+            for res in results {
+                match res {
+                    Ok((device, pid)) => info!("Device: {:?} (pid: {:#X})", device, pid),
+                    Err(e) => error!("Error probing device: {:?}", e),
+                }
             }
-        },
+        }
     }
 
     Ok(())
