@@ -29,7 +29,6 @@ use thiserror::Error;
 pub struct StreamDeck {
     kind: Kind,
     device: HidDevice,
-    input_manager: InputManager
 }
 
 /// Helper object for filtering device connections
@@ -145,8 +144,6 @@ impl StreamDeck {
         // Return streamdeck object
         Ok(StreamDeck { 
             device, kind, 
-            input_manager: 
-            InputManager::new()
         })
     }
 
@@ -252,7 +249,7 @@ impl StreamDeck {
     /// In blocking mode this will wait until a report packet has been received
     /// (or the specified timeout has elapsed). In non-blocking mode this will return
     /// immediately with a zero vector if no data is available
-    pub fn read_input(&mut self, timeout: Option<Duration>) -> Result<Vec<InputEvent>, Error> {
+    pub fn read_input(&mut self, timeout: Option<Duration>) -> Result<[u8; 36], Error> {
         let mut cmd = [0u8; 36];
         let keys = self.kind.keys() as usize;
         let offset = self.kind.key_data_offset();
@@ -268,7 +265,7 @@ impl StreamDeck {
         if cmd[0] == 0 {
             return Err(Error::NoData);
         }
-        Ok(self.input_manager.handle_input(&cmd, &self.kind)?)
+        Ok(cmd)
     }
 
     /// Fetch button states
@@ -591,7 +588,7 @@ impl StreamDeck {
             height as usize, 
             opts
         )?;
-
+        println!("Made it here");
         self.write_touchscreen_image(
             img,
             x, 
@@ -608,7 +605,8 @@ impl StreamDeck {
             return Err(Error::InvalidKeyIndex); //Todo: create a new error type for this
         }
         let image = &image.data;
-        let mut buf = vec![0u8; self.kind.image_report_len()];
+        let img_packet_len = self.kind.image_report_len();
+        let mut buf = vec![0u8; img_packet_len];
         let _base = self.kind.image_touch_base();
         let hdrlen = self.kind.touch_image_report_header_len();
         let page_number = 0;
@@ -660,8 +658,12 @@ impl StreamDeck {
                 start,
                 start + take,
                 sequence,
-                if is_last { " (last)" } else { "" },
+                if is_last { " (last)\n" } else { "" },
+                
             );
+            if is_last {
+                info!("{:?} (length: {})", &buf, &buf.len());
+            }
             self.device.write(&buf)?;
 
             sequence += 1;

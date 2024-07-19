@@ -11,7 +11,7 @@ use structopt::StructOpt;
 extern crate humantime;
 use humantime::Duration;
 
-use streamdeck::{Colour, Error, Filter, ImageOptions, InputEvent, StreamDeck};
+use streamdeck::{Colour, Error, Filter, ImageOptions, InputEvent, InputManager, StreamDeck};
 #[derive(StructOpt)]
 #[structopt(name = "streamdeck-cli", about = "A CLI for the Elgato StreamDeck")]
 struct Options {
@@ -143,8 +143,9 @@ fn do_command(deck: &mut StreamDeck, cmd: Commands) -> Result<(), Error> {
             }
         },
         Commands::GetInput{timeout, continuous, callback} => {
+            let mut manager = InputManager::new(deck);
             loop {
-                let input = deck.read_input(timeout.map(|t| *t ))?;
+                let input = manager.handle_input(timeout.map(|t| *t ))?;
                 info!("input: {:?}", input);
                 if let Some(cb) = &callback {
                     cb(input)?;
@@ -165,10 +166,11 @@ fn do_command(deck: &mut StreamDeck, cmd: Commands) -> Result<(), Error> {
         },
         Commands::SetTouchscreenImage{file, opts} => {
             info!("Setting touchscreen image: {}", file);
-            let x: u16 = 40;
-            let y: u16 = 20;
-            let width: u16 = 720;
-            let height: u16 = 60;
+            //@Todo This needs to be parameterized
+            let x: u16 = 0;
+            let y: u16 = 0;
+            let width: u16 = 800;
+            let height: u16 = 100;
             deck.set_touchscreen_file(&file, x, y, width, height, &opts)?;
         }
         Commands::Probe => {
