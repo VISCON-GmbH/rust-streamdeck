@@ -231,6 +231,7 @@ impl Kind {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn image_touch_base(&self) -> &[u8] {
         match self {
             Kind::Plus => &PLUS_TOUCH_IMAGE_BASE,

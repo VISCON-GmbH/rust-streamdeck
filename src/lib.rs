@@ -678,7 +678,7 @@ impl StreamDeck {
             if is_last {
                 buf = vec![0u8; self.kind.image_report_len()];
             }
-            // Header for SD Plus. If other streamdecks support this functionality in the future,
+            // Header for SD Plus touchscreen. If other streamdecks support this functionality in the future,
             // this will need to be updated to check the device kind and write the appropriate header
             buf[0] = 0x02;
             buf[1] = 0x0c;
