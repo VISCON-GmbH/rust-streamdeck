@@ -9,7 +9,7 @@ use ab_glyph::{FontRef, PxScale};
 use hidapi::{HidApi, HidDevice, HidError};
 
 extern crate image;
-use image::{DynamicImage, ImageBuffer, ImageError, Rgb};
+use image::{DynamicImage, ImageBuffer, ImageError, ImageReader, Rgb};
 
 pub mod images;
 use crate::images::{apply_transform, encode_jpeg};
@@ -70,6 +70,8 @@ pub enum Error {
     NoData,
     #[error("command not supported on this device")]
     UnsupportedCommand,
+    #[error("invalid image position")]
+    InvalidImagePosition,
 }
 
 pub struct DeviceImage {
@@ -192,11 +194,7 @@ impl StreamDeck {
         } else {
             // Non-module devices
             let mut buff = [0u8; 17];
-            buff[0] = if self.kind.is_v2() {
-                0x05
-            } else {
-                0x04
-            };
+            buff[0] = if self.kind.is_v2() { 0x05 } else { 0x04 };
 
             let _s = self.device.get_feature_report(&mut buff)?;
 
@@ -265,9 +263,9 @@ impl StreamDeck {
         Ok(())
     }
 
-    /// Probe for connected devices. 
-    /// 
-    /// Returns a list of results, 
+    /// Probe for connected devices.
+    ///
+    /// Returns a list of results,
     /// each containing the device kind and PID or an error if the PID is unrecognised
     pub fn probe() -> Result<Vec<Result<(Kind, u16), Error>>, Error> {
         let api = HidApi::new()?;
@@ -284,7 +282,7 @@ impl StreamDeck {
                     pids::MODULE_6_KEYS => Ok((Kind::Module6Keys, pids::MODULE_6_KEYS)),
                     pids::MODULE_15_KEYS => Ok((Kind::Module15Keys, pids::MODULE_15_KEYS)),
                     pids::MODULE_32_KEYS => Ok((Kind::Module32Keys, pids::MODULE_32_KEYS)),
-                    _ => Err(Error::UnrecognisedPID)
+                    _ => Err(Error::UnrecognisedPID),
                 };
                 available_devices.push(deck);
             }
@@ -571,7 +569,7 @@ impl StreamDeck {
                     buf[3] = 0x00; // Reserved
                     buf[4] = if is_last { 0x01 } else { 0x00 }; // Show Image flag
                     buf[5] = key;
-                    buf[6..10].copy_from_slice(&[0x00,0x00,0x00,0x00]);
+                    buf[6..10].copy_from_slice(&[0x00, 0x00, 0x00, 0x00]);
                 }
                 // https://docs.elgato.com/streamdeck/hid/module-15_32#output-reports
                 // basically same as v2
@@ -585,8 +583,7 @@ impl StreamDeck {
                 }
                 _ => unreachable!(),
             }
-        }
-        else if self.kind.is_v2() {
+        } else if self.kind.is_v2() {
             buf[0] = 0x02;
             buf[1] = 0x07;
             buf[2] = key;
@@ -601,6 +598,123 @@ impl StreamDeck {
             buf[5] = key;
         }
     }
+
+    pub fn set_touchscreen_file(
+        &self,
+        image: &str,
+        position: (u16, u16),
+        opts: &ImageOptions,
+    ) -> Result<(), Error> {
+        let (img, size) = &self.load_touch_image(image, opts)?;
+        self.write_touchscreen_image(img, position, *size)
+    }
+
+    pub fn load_touch_image(
+        &self,
+        image_path: &str,
+        _opts: &ImageOptions,
+    ) -> Result<(DeviceImage, (u16, u16)), Error> {
+        let reader = ImageReader::open(image_path).map_err(|e| Error::Io(e))?;
+        let image = reader.decode().map_err(Error::Image)?;
+
+        let width = image.width() as usize;
+        let height = image.height() as usize;
+        let max_size = self.kind.touch_image_size();
+
+        if width > max_size.0 || height > max_size.1 {
+            return Err(Error::InvalidImageSize);
+        }
+        let size = (width as u16, height as u16);
+        let img =  self.convert_touch_image(image.to_rgb8().into_vec(), (width, height))?;
+        Ok((img, size))
+    }
+
+    fn convert_touch_image(
+        &self,
+        image: Vec<u8>,
+        dimensions: (usize, usize),
+    ) -> Result<DeviceImage, Error> {
+        if image.len() > self.kind.touch_image_size_bytes() {
+            info!("{} > {}", image.len(), self.kind.touch_image_size_bytes());
+            return Err(Error::InvalidImageSize);
+        }
+
+        let image = match self.kind.image_mode() {
+            ImageMode::Bmp => image,
+            ImageMode::Jpeg => encode_jpeg(&image, dimensions.0, dimensions.1)?,
+        };
+        Ok(DeviceImage { data: image })
+    }
+
+    pub fn write_touchscreen_image(
+        &self,
+        image: &DeviceImage,
+        position: (u16, u16),
+        size: (u16, u16),
+    ) -> Result<(), Error> {
+        let max_size = self.kind.touch_image_size();
+        //Check if image position + dimensions are within the bounds of the touchscreen
+        if position.0 + size.0 > max_size.0 as u16 || position.1 + size.1 > max_size.1 as u16 {
+            return Err(Error::InvalidImagePosition);
+        }
+        
+        let (x, y) = position;
+        let (width, height) = size;
+        
+        let image = &image.data;
+        let img_packet_len = self.kind.image_report_len();
+        let mut buf = vec![0u8; img_packet_len];
+        let hdrlen = self.kind.touch_image_report_header_len();
+        let mut page_number = 0;
+        let mut offset = 0;
+        let maxdatalen = buf.len() - hdrlen;
+
+        while offset < image.len() {
+            let take = (image.len() - offset).min(maxdatalen);
+            let start = hdrlen;
+
+            let is_last = take == image.len() - offset;
+
+            if is_last {
+                buf = vec![0u8; self.kind.image_report_len()];
+            }
+            // Header for SD Plus. If other streamdecks support this functionality in the future,
+            // this will need to be updated to check the device kind and write the appropriate header
+            buf[0] = 0x02;
+            buf[1] = 0x0c;
+            buf[2] = (x & 0xFF) as u8; // x low
+            buf[3] = ((x >> 8) & 0xff) as u8; // x high
+            buf[4] = (y & 0xFF) as u8; // y low
+            buf[5] = (y >> 8 & 0xff) as u8; // y high
+            buf[6] = (width & 0xFF) as u8; // width low
+            buf[7] = ((width >> 8) & 0xff) as u8; // width high
+            buf[8] = (height & 0xFF) as u8; // height low
+            buf[9] = ((height >> 8) & 0xff) as u8; // height high
+            buf[10] = if is_last { 1 } else { 0 }; // is this the last packet?
+            buf[11] = (page_number & 0xFF) as u8; //Page number low
+            buf[12] = ((page_number >> 8) & 0xff) as u8; //Page number high
+            buf[13] = (take & 0xFF) as u8; //take low
+            buf[14] = ((take >> 8) & 0xff) as u8; //take high
+            buf[15] = 0x00; //padding
+
+            buf[start..start + take].copy_from_slice(&image[offset..offset + take]);
+
+            trace!(
+                "outputting image chunk [{}..{}] in [{}..{}] page [{}{}]",
+                offset,
+                offset + take,
+                start,
+                start + take,
+                page_number,
+                if is_last { " (last)\n" } else { "" },
+            );
+            self.device.write(&buf)?;
+
+            page_number += 1;
+            offset += take;
+        }
+        Ok(())
+    }
 }
 
 /// TextPosition is how to position text via set_button_text
@@ -608,6 +722,7 @@ pub enum TextPosition {
     /// Absolute positioning
     Absolute { x: i32, y: i32 },
 }
+
 
 /// Text Options provide values for text buttons
 pub struct TextOptions {
