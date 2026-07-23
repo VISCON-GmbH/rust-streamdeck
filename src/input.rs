@@ -79,6 +79,17 @@ impl InputManager {
         }
     }
 
+    /// Mutable access to the underlying [`StreamDeck`], e.g. to set button
+    /// images/colours or brightness while still using this manager for input.
+    pub fn device_mut(&mut self) -> &mut StreamDeck {
+        &mut self.deck
+    }
+
+    /// Immutable access to the underlying [`StreamDeck`].
+    pub fn device(&self) -> &StreamDeck {
+        &self.deck
+    }
+
     ///Handles input events for the Streamdeck device and returns a Vec of InputEvents
     pub fn handle_input(
         &mut self,

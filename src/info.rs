@@ -105,7 +105,7 @@ impl Kind {
 
     pub(crate) fn key_index_offset(&self) -> u8 {
         match self {
-            Kind::RevisedMini => 1,
+            Kind::Mini | Kind::RevisedMini => 1,
             _ => 0,
         }
     }
